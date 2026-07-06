@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantumChat Pro - Premium Real-Time Messenger</title>
+    <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <svg viewBox="0 0 24 24" class="icon-logo"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.93.55 3.73 1.5 5.26L2.05 22l4.74-1.45A9.97 9.97 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm0 18c-1.63 0-3.16-.48-4.46-1.3l-.32-.2-2.82.86.87-2.77-.21-.34C4.48 15.16 4 13.63 4 12c0-4.41 3.59-8 8-8s8 3.59 8 8-3.59 8-8 8z"/></svg>
+                QuantumChat<span class="pro">PRO</span>
+            </div>
+        </header>
+
+        <main class="app-body">
+            <aside class="sidebar">
+                <section class="section user-panel">
+                    <h3>Your Profile</h3>
+                    <div class="input-group">
+                        <input type="text" id="usernameInput" placeholder="Enter username..." maxlength="15">
+                        <button id="setUsernameBtn">Set</button>
+                    </div>
+                </section>
+
+                <section class="section room-panel">
+                    <h3>Chat Rooms</h3>
+                    <div class="input-group">
+                        <input type="text" id="roomNumberInput" placeholder="Room ID (e.g., 101)">
+                        <button id="joinRoomBtn">Join</button>
+                    </div>
+                    <div id="activeRoomStatus" class="status-box">No room joined</div>
+                </section>
+            </aside>
+
+            <section class="chat-area">
+                <div id="chatHeader" class="chat-header hidden">
+                    <span id="currentRoomDisplay">Room: --</span>
+                </div>
+                
+                <div id="messageDisplay" class="message-container">
+                    <div class="welcome-screen">
+                        <svg viewBox="0 0 24 24" class="icon-welcome"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
+                        <h2>Welcome to QuantumChat</h2>
+                        <p>Set your username and join a room to start talking.</p>
+                    </div>
+                </div>
+
+                <form id="chatForm" class="chat-input-bar hidden">
+                    <input type="text" placeholder="Type your message here..." id="messageInput" required autocomplete="off">
+                    <button type="submit" class="send-btn">
+                        <svg viewBox="0 0 24 24" class="icon-send"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+                    </button>
+                </form>
+            </section>
+        </main>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+
+        // DOM Elements
+        const messageBox = document.getElementById('messageDisplay');
+        const messageInput = document.getElementById('messageInput');
+        const chatForm = document.getElementById('chatForm');
+        const roomNumberInput = document.getElementById('roomNumberInput');
+        const joinRoomBtn = document.getElementById('joinRoomBtn');
+        const usernameInput = document.getElementById('usernameInput');
+        const setUsernameBtn = document.getElementById('setUsernameBtn');
+        const activeRoomStatus = document.getElementById('activeRoomStatus');
+        const chatHeader = document.getElementById('chatHeader');
+        const currentRoomDisplay = document.getElementById('currentRoomDisplay');
+
+        let currentRoomId = null;
+        let myUsername = null;
+
+        // 1. Set Username Logic
+        setUsernameBtn.addEventListener('click', () => {
+            const username = usernameInput.value.trim();
+            if (!username) return alert("Please enter a username.");
+            myUsername = username;
+            
+            // Lock the username input
+            usernameInput.disabled = true;
+            setUsernameBtn.disabled = true;
+            setUsernameBtn.textContent = "Set ✓";
+            setUsernameBtn.style.backgroundColor = "#2ecc71";
+            
+            checkEnableChat();
+        });
+
+        // 2. Join Room Logic
+        joinRoomBtn.addEventListener('click', () => {
+            if (!myUsername) return alert("Please set your username first.");
+            
+            const room = roomNumberInput.value.trim();
+            if (!room) return alert("Please enter a room number.");
+
+            currentRoomId = room;
+            
+            // Notify server you are joining and send username
+            socket.emit('join-room', { room: currentRoomId, username: myUsername });
+
+            // Update UI to show active room
+            activeRoomStatus.textContent = `Joined Room: ${currentRoomId}`;
+            activeRoomStatus.classList.add('joined');
+            currentRoomDisplay.textContent = `Room: ${currentRoomId}`;
+
+            checkEnableChat();
+        });
+
+        // Helper to enable chat interface
+        function checkEnableChat() {
+            if (myUsername && currentRoomId) {
+                // Remove welcome screen if it exists
+                const welcome = document.querySelector('.welcome-screen');
+                if (welcome) welcome.remove();
+
+                // Show input bar and header
+                chatForm.classList.remove('hidden');
+                chatHeader.classList.remove('hidden');
+                messageInput.focus();
+            }
+        }
+
+        // 3. Send Message Logic
+        chatForm.addEventListener('submit', (event) => {
+            event.preventDefault(); 
+
+            const msgText = messageInput.value.trim();
+            if (!msgText) return;
+
+            // Send structured object to the server
+            socket.emit('message', { 
+                room: currentRoomId, 
+                msg: msgText, 
+                username: myUsername 
+            });
+
+            // Visually append your own message instantly (Right Aligned)
+            appendMessage({
+                username: 'You',
+                msg: msgText,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            }, 'sent');
+
+            messageInput.value = ''; 
+        });
+
+        // 4. Handle Incoming Messages (and System Messages)
+        socket.on('new-message', (data) => {
+            appendMessage(data, 'received');
+        });
+
+        socket.on('system-message', (data) => {
+            appendMessage(data, 'system');
+        });
+
+        // Helper to Create and Append Message DOM Elements
+        function appendMessage(data, type) {
+            const container = document.createElement('div');
+            container.classList.add('msg-wrapper', type);
+
+            let contentHTML = '';
+
+            if (type === 'system') {
+                contentHTML = `<div class="system-msg">${data.msg}</div>`;
+            } else {
+                contentHTML = `
+                    <div class="avatar">${data.username.charAt(0).toUpperCase()}</div>
+                    <div class="msg-bubble">
+                        <div class="msg-info">
+                            <span class="msg-username">${data.username}</span>
+                            <span class="msg-time">${data.time}</span>
+                        </div>
+                        <p class="msg-text">${data.msg}</p>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = contentHTML;
+            messageBox.appendChild(container);
+            messageBox.scrollTop = messageBox.scrollHeight;
+        }
+    </script>
+</body>
+</html>
